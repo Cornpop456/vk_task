@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/Cornpop456/vk_task/subpub"
@@ -14,39 +13,50 @@ func main() {
 	bus := subpub.NewSubPub()
 
 	// Подписываемся на событие
-	subscription, err := bus.Subscribe("topic1", func(msg interface{}) {
-		fmt.Printf("Получено сообщение: %v\n", msg)
+	bus.Subscribe("topic1", func(msg interface{}) {
+		time.Sleep(3 * time.Second)
+		fmt.Printf("1 topic 1 Получено сообщение: %v\n", msg)
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
+
+	bus.Subscribe("topic1", func(msg interface{}) {
+		time.Sleep(2 * time.Second)
+		fmt.Printf("2 topic 1 Получено сообщение: %v\n", msg)
+	})
+
+	bus.Subscribe("topic2", func(msg interface{}) {
+		time.Sleep(2 * time.Second)
+		fmt.Printf("1 topic 2 Получено сообщение: %v\n", msg)
+	})
+
+	bus.Subscribe("topic2", func(msg interface{}) {
+		time.Sleep(1 * time.Second)
+		fmt.Printf("2 topic 2 Получено сообщение: %v\n", msg)
+	})
+
+	bus.Subscribe("topic2", func(msg interface{}) {
+		time.Sleep(3 * time.Second)
+		fmt.Printf("3 topic 2 Получено сообщение: %v\n", msg)
+	})
 
 	// Публикуем сообщение
-	err = bus.Publish("topic1", "Hello, subscribers!")
-	if err != nil {
-		log.Fatal(err)
-	}
+	bus.Publish("topic2", "ываыва")
 
-	// Немного ждем, чтобы обработать сообщения
-	time.Sleep(1 * time.Second)
+	bus.Publish("topic1", "AAAAAAAA")
 
-	// Отписываемся
-	subscription.Unsubscribe()
+	bus.Publish("topic2", "Hello, subscribers!")
 
-	// Публикуем еще одно сообщение, но никто уже не получит его
-	err = bus.Publish("topic1", "This won't be received")
-	if err != nil {
-		log.Fatal(err)
-	}
+	bus.Publish("topic2", "AAAAAAAA")
+
+	fmt.Println(bus.GetLenQueue())
 
 	// Закрываем EventBus
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	err = bus.Close(ctx)
+	err := bus.Close(ctx)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
+	} else {
+		fmt.Println("EventBus закрыт успешно")
 	}
-
-	fmt.Println("EventBus закрыт успешно")
 }

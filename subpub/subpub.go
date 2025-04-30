@@ -21,6 +21,7 @@ type SubPub interface {
 	Subscribe(subject string, cb MessageHandler) (Subscription, error)
 	Publish(subject string, msg interface{}) error
 	Close(ctx context.Context) error
+	GetLenQueue() int
 }
 
 var ErrBusClosed = errors.New("event bus is closed")
@@ -59,12 +60,11 @@ func (s *SubscriptionImpl) Unsubscribe() {
 }
 
 type EventBus struct {
-	subjects       map[string]map[int]MessageHandler
-	lastSubIdx     int
-	mu             sync.RWMutex
-	closed         bool
-	activeHandlers sync.WaitGroup
-	messageQueue   chan queuedMessage
+	subjects     map[string]map[int]MessageHandler
+	lastSubIdx   int
+	mu           sync.RWMutex
+	closed       bool
+	messageQueue chan queuedMessage
 }
 
 type queuedMessage struct {
@@ -128,6 +128,10 @@ func (eb *EventBus) Publish(subject string, msg interface{}) error {
 	return nil
 }
 
+func (eb *EventBus) GetLenQueue() int {
+	return len(eb.messageQueue)
+}
+
 func (eb *EventBus) startQueueHandler() {
 	go func() {
 		for msg := range eb.messageQueue {
@@ -142,7 +146,6 @@ func (eb *EventBus) startQueueHandler() {
 			eb.mu.RUnlock()
 
 			if len(handlers) > 0 {
-				eb.activeHandlers.Add(len(handlers))
 				localWg := sync.WaitGroup{}
 				localWg.Add(len(handlers))
 
@@ -153,7 +156,6 @@ func (eb *EventBus) startQueueHandler() {
 								log.Printf("Recovered from panic in handler: %v", r)
 							}
 							localWg.Done()
-							eb.activeHandlers.Done()
 						}()
 						h(msg.message)
 					}(handler)
@@ -174,23 +176,28 @@ func (eb *EventBus) Close(ctx context.Context) error {
 	}
 
 	eb.closed = true
-	eb.subjects = make(map[string]map[int]MessageHandler)
-	eb.lastSubIdx = 0
-
-	close(eb.messageQueue)
 
 	eb.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		eb.activeHandlers.Wait()
-		close(done)
-	}()
+	for {
+		select {
+		case <-ctx.Done():
+			eb.mu.Lock()
+			eb.subjects = make(map[string]map[int]MessageHandler)
+			eb.lastSubIdx = 0
+			close(eb.messageQueue)
+			eb.mu.Unlock()
+			return ctx.Err()
+		default:
+			if len(eb.messageQueue) == 0 {
+				eb.mu.Lock()
+				eb.subjects = make(map[string]map[int]MessageHandler)
+				eb.lastSubIdx = 0
+				close(eb.messageQueue)
+				eb.mu.Unlock()
+				return nil
+			}
 
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+		}
 	}
 }
