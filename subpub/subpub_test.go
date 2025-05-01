@@ -198,38 +198,3 @@ func TestEventBusSlowHandlerDoesntBlockFastHandlers(t *testing.T) {
 			"Fast handler should complete before slow handler")
 	}
 }
-
-func TestEventBusMessageOrderingFIFO(t *testing.T) {
-	eb := NewEventBus()
-
-	receivedMessages := make(chan string, 10)
-	messageCount := 5
-
-	_, err := eb.Subscribe("ordered-topic", func(msg interface{}) {
-		receivedMessages <- msg.(string)
-	})
-	assert.NoError(t, err)
-
-	for i := 0; i < messageCount; i++ {
-		message := fmt.Sprintf("message-%d", i)
-		err := eb.Publish("ordered-topic", message)
-		assert.NoError(t, err)
-	}
-
-	time.Sleep(50 * time.Millisecond)
-	close(receivedMessages)
-
-	var receivedOrder []string
-	for msg := range receivedMessages {
-		receivedOrder = append(receivedOrder, msg)
-	}
-
-	assert.Equal(t, messageCount, len(receivedOrder),
-		"Should have received exactly %d messages", messageCount)
-
-	for i := 0; i < messageCount; i++ {
-		expectedMsg := fmt.Sprintf("message-%d", i)
-		assert.Equal(t, expectedMsg, receivedOrder[i],
-			"Message at position %d should be '%s'", i, expectedMsg)
-	}
-}

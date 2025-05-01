@@ -161,22 +161,16 @@ func (eb *EventBus) startQueueHandler() {
 				eb.mu.RUnlock()
 
 				if len(handlers) > 0 {
-					localWg := sync.WaitGroup{}
-					localWg.Add(len(handlers))
-
 					for _, handler := range handlers {
 						go func(h MessageHandler) {
 							defer func() {
 								if r := recover(); r != nil {
 									log.Printf("Recovered from panic in handler: %v", r)
 								}
-								localWg.Done()
 							}()
 							h(msg.message)
 						}(handler)
 					}
-
-					localWg.Wait()
 				}
 
 				eb.mu.Lock()

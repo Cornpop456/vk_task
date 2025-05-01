@@ -48,6 +48,9 @@ func main() {
 	bus.Publish("topic2", "AAAAAAAA")
 
 	fmt.Println(bus.GetLenQueue())
+
+	time.Sleep(2 * time.Second)
+
 	// Закрываем EventBus
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
