@@ -60,11 +60,14 @@ func (s *SubscriptionImpl) Unsubscribe() {
 }
 
 type EventBus struct {
-	subjects     map[string]map[int]MessageHandler
-	lastSubIdx   int
-	mu           sync.RWMutex
-	closed       bool
-	messageQueue chan queuedMessage
+	subjects             map[string]map[int]MessageHandler
+	lastSubIdx           int
+	mu                   sync.RWMutex
+	closed               bool
+	messageQueue         chan queuedMessage
+	allMessagesProcessed chan struct{}
+	done                 chan struct{}
+	messageIsProcessing  bool
 }
 
 type queuedMessage struct {
@@ -74,10 +77,13 @@ type queuedMessage struct {
 
 func NewEventBus() *EventBus {
 	eb := &EventBus{
-		subjects:     make(map[string]map[int]MessageHandler),
-		lastSubIdx:   0,
-		closed:       false,
-		messageQueue: make(chan queuedMessage, queueSize),
+		subjects:             make(map[string]map[int]MessageHandler),
+		lastSubIdx:           0,
+		closed:               false,
+		messageQueue:         make(chan queuedMessage, queueSize),
+		allMessagesProcessed: make(chan struct{}),
+		messageIsProcessing:  false,
+		done:                 make(chan struct{}),
 	}
 
 	eb.startQueueHandler()
@@ -134,34 +140,52 @@ func (eb *EventBus) GetLenQueue() int {
 
 func (eb *EventBus) startQueueHandler() {
 	go func() {
-		for msg := range eb.messageQueue {
-			eb.mu.RLock()
-			var handlers []MessageHandler
-			if subs, ok := eb.subjects[msg.subject]; ok {
-				handlers = make([]MessageHandler, 0, len(subs))
-				for _, cb := range subs {
-					handlers = append(handlers, cb)
+		for {
+			select {
+			case <-eb.done:
+				return
+			case msg := <-eb.messageQueue:
+
+				eb.mu.Lock()
+				eb.messageIsProcessing = true
+				eb.mu.Unlock()
+
+				eb.mu.RLock()
+				var handlers []MessageHandler
+				if subs, ok := eb.subjects[msg.subject]; ok {
+					handlers = make([]MessageHandler, 0, len(subs))
+					for _, cb := range subs {
+						handlers = append(handlers, cb)
+					}
 				}
-			}
-			eb.mu.RUnlock()
+				eb.mu.RUnlock()
 
-			if len(handlers) > 0 {
-				localWg := sync.WaitGroup{}
-				localWg.Add(len(handlers))
+				if len(handlers) > 0 {
+					localWg := sync.WaitGroup{}
+					localWg.Add(len(handlers))
 
-				for _, handler := range handlers {
-					go func(h MessageHandler) {
-						defer func() {
-							if r := recover(); r != nil {
-								log.Printf("Recovered from panic in handler: %v", r)
-							}
-							localWg.Done()
-						}()
-						h(msg.message)
-					}(handler)
+					for _, handler := range handlers {
+						go func(h MessageHandler) {
+							defer func() {
+								if r := recover(); r != nil {
+									log.Printf("Recovered from panic in handler: %v", r)
+								}
+								localWg.Done()
+							}()
+							h(msg.message)
+						}(handler)
+					}
+
+					localWg.Wait()
 				}
 
-				localWg.Wait()
+				eb.mu.Lock()
+				eb.messageIsProcessing = false
+				if eb.closed && len(eb.messageQueue) == 0 {
+					close(eb.allMessagesProcessed)
+				}
+				eb.mu.Unlock()
+
 			}
 		}
 	}()
@@ -177,27 +201,28 @@ func (eb *EventBus) Close(ctx context.Context) error {
 
 	eb.closed = true
 
+	if len(eb.messageQueue) == 0 && !eb.messageIsProcessing {
+		close(eb.allMessagesProcessed)
+	}
+
 	eb.mu.Unlock()
 
 	for {
 		select {
 		case <-ctx.Done():
 			eb.mu.Lock()
+			close(eb.done)
 			eb.subjects = make(map[string]map[int]MessageHandler)
 			eb.lastSubIdx = 0
-			close(eb.messageQueue)
 			eb.mu.Unlock()
 			return ctx.Err()
-		default:
-			if len(eb.messageQueue) == 0 {
-				eb.mu.Lock()
-				eb.subjects = make(map[string]map[int]MessageHandler)
-				eb.lastSubIdx = 0
-				close(eb.messageQueue)
-				eb.mu.Unlock()
-				return nil
-			}
-
+		case <-eb.allMessagesProcessed:
+			eb.mu.Lock()
+			close(eb.done)
+			eb.subjects = make(map[string]map[int]MessageHandler)
+			eb.lastSubIdx = 0
+			eb.mu.Unlock()
+			return ctx.Err()
 		}
 	}
 }

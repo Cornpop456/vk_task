@@ -14,17 +14,17 @@ func main() {
 
 	// Подписываемся на событие
 	bus.Subscribe("topic1", func(msg interface{}) {
-		time.Sleep(3 * time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Printf("1 topic 1 Получено сообщение: %v\n", msg)
 	})
 
 	bus.Subscribe("topic1", func(msg interface{}) {
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Printf("2 topic 1 Получено сообщение: %v\n", msg)
 	})
 
 	bus.Subscribe("topic2", func(msg interface{}) {
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Printf("1 topic 2 Получено сообщение: %v\n", msg)
 	})
 
@@ -34,7 +34,7 @@ func main() {
 	})
 
 	bus.Subscribe("topic2", func(msg interface{}) {
-		time.Sleep(3 * time.Second)
+		time.Sleep(1 * time.Second)
 		fmt.Printf("3 topic 2 Получено сообщение: %v\n", msg)
 	})
 
@@ -48,9 +48,8 @@ func main() {
 	bus.Publish("topic2", "AAAAAAAA")
 
 	fmt.Println(bus.GetLenQueue())
-
 	// Закрываем EventBus
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	err := bus.Close(ctx)
