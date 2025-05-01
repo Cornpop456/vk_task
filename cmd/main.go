@@ -2,63 +2,81 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/Cornpop456/vk_task/subpub"
+	"github.com/Cornpop456/vk_task/api/proto"
+	"github.com/Cornpop456/vk_task/pkg/logger"
+	"github.com/Cornpop456/vk_task/server"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
 )
 
 func main() {
-	// Создаем новый EventBus
-	bus := subpub.NewSubPub()
+	config := server.NewConfig()
 
-	// Подписываемся на событие
-	bus.Subscribe("topic1", func(msg interface{}) {
-		time.Sleep(1 * time.Second)
-		fmt.Printf("1 topic 1 Получено сообщение: %v\n", msg)
-	})
+	// Инициализируем логгер
+	logger.Init(config.LogLevel, config.LogFilePath)
+	defer logger.Log.Sync()
 
-	bus.Subscribe("topic1", func(msg interface{}) {
-		time.Sleep(1 * time.Second)
-		fmt.Printf("2 topic 1 Получено сообщение: %v\n", msg)
-	})
+	logDestination := "stdout"
+	if config.LogFilePath != "" {
+		logDestination = config.LogFilePath
+	}
 
-	bus.Subscribe("topic2", func(msg interface{}) {
-		time.Sleep(1 * time.Second)
-		fmt.Printf("1 topic 2 Получено сообщение: %v\n", msg)
-	})
+	logger.Info("Starting PubSub gRPC server...",
+		logger.String("address", config.Address()),
+		logger.String("logLevel", config.LogLevel),
+		logger.String("logDestination", logDestination))
 
-	bus.Subscribe("topic2", func(msg interface{}) {
-		time.Sleep(1 * time.Second)
-		fmt.Printf("2 topic 2 Получено сообщение: %v\n", msg)
-	})
+	lis, err := net.Listen("tcp", config.Address())
+	if err != nil {
+		logger.Fatal("Failed to listen", logger.Err(err))
+	}
 
-	bus.Subscribe("topic2", func(msg interface{}) {
-		time.Sleep(1 * time.Second)
-		fmt.Printf("3 topic 2 Получено сообщение: %v\n", msg)
-	})
+	opts := []grpc.ServerOption{
+		grpc.MaxConcurrentStreams(uint32(config.MaxConnections)),
+	}
 
-	// Публикуем сообщение
-	bus.Publish("topic2", "ываыва")
+	grpcServer := grpc.NewServer(opts...)
 
-	bus.Publish("topic1", "AAAAAAAA")
+	pubsubServer := server.NewPubSubServer()
 
-	bus.Publish("topic2", "Hello, subscribers!")
+	proto.RegisterPubsubServer(grpcServer, pubsubServer)
 
-	bus.Publish("topic2", "AAAAAAAA")
+	// Канал для получения сигналов ОС
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	fmt.Println(bus.GetLenQueue())
+	// Запускаем сервер в отдельной горутине
+	go func() {
+		logger.Info("Server listening",
+			logger.String("address", config.Address()),
+			logger.Int("maxConnections", config.MaxConnections))
 
-	time.Sleep(2 * time.Second)
+		if err := grpcServer.Serve(lis); err != nil {
+			logger.Fatal("Failed to serve", logger.Err(err))
+		}
+	}()
 
-	// Закрываем EventBus
+	// Ожидаем сигнала завершения
+	sig := <-sigChan
+	logger.Info("Received signal", zap.String("signal", sig.String()))
+
+	logger.Info("Gracefully stopping gRPC server...")
+	grpcServer.GracefulStop()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := bus.Close(ctx)
-	if err != nil {
-		fmt.Println(err)
+	if err := pubsubServer.Close(ctx); err != nil {
+		logger.Error("Error during SubPub close", logger.Err(err))
 	} else {
-		fmt.Println("EventBus закрыт успешно")
+		logger.Info("SubPub closed successfully")
 	}
+
+	logger.Info("Server stopped")
 }
