@@ -69,23 +69,23 @@ func Init(level string, filePath string) {
 }
 
 func Debug(msg string, fields ...zapcore.Field) {
-	Log.Debug(msg, fields...)
+	Log.WithOptions(zap.AddCallerSkip(1)).Debug(msg, fields...)
 }
 
 func Info(msg string, fields ...zapcore.Field) {
-	Log.Info(msg, fields...)
+	Log.WithOptions(zap.AddCallerSkip(1)).Info(msg, fields...)
 }
 
 func Warn(msg string, fields ...zapcore.Field) {
-	Log.Warn(msg, fields...)
+	Log.WithOptions(zap.AddCallerSkip(1)).Warn(msg, fields...)
 }
 
 func Error(msg string, fields ...zapcore.Field) {
-	Log.Error(msg, fields...)
+	Log.WithOptions(zap.AddCallerSkip(1)).Error(msg, fields...)
 }
 
 func Fatal(msg string, fields ...zapcore.Field) {
-	Log.Fatal(msg, fields...)
+	Log.WithOptions(zap.AddCallerSkip(1)).Fatal(msg, fields...)
 }
 
 func With(fields ...zapcore.Field) *zap.Logger {

@@ -9,6 +9,7 @@ import (
 // Config содержит настройки для сервера
 type Config struct {
 	Port           int
+	Ip             string
 	MaxConnections int
 	// Уровень логирования (debug, info, warn, error)
 	LogLevel string
@@ -19,6 +20,7 @@ type Config struct {
 func NewConfig() *Config {
 	config := &Config{
 		Port:           50051,
+		Ip:             "",
 		MaxConnections: 100,
 		LogLevel:       "info",
 		LogFilePath:    "", // По умолчанию пустая строка (stdout)
@@ -51,7 +53,6 @@ func NewConfig() *Config {
 	return config
 }
 
-// Address возвращает адрес сервера в формате host:port
 func (c *Config) Address() string {
-	return fmt.Sprintf(":%d", c.Port)
+	return fmt.Sprintf("%s:%d", c.Ip, c.Port)
 }
